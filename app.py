@@ -48,7 +48,7 @@ def load_resources():
     u_enc.fit(ratings['userId'])
     m_enc.fit(valid_movie_ids)
     
-    # Filter movies to match valid subset
+    # Filter movies dataframe
     movies = movies[movies['movieId'].isin(valid_movie_ids)]
     
     # Load model
@@ -57,13 +57,22 @@ def load_resources():
         
     return movies, model, u_enc, m_enc
 
-# Ensure you call this correctly so variables exist
+# Load resources globally
 movies, model, u_enc, m_enc = load_resources()
 
 # 3. Streamlit UI
 st.title("🎬 Movie Recommender System")
 
-raw_user_id = st.number_input("Enter User ID", min_value=0, max_value=610, value=1)
+# Interactive Controls
+col1, col2 = st.columns(2)
+with col1:
+    raw_user_id = st.number_input("Enter User ID", min_value=0, max_value=610, value=1)
+with col2:
+    num_recs = st.slider("Number of recommendations", 1, 10, 5)
+
+# Genre Filtering
+all_genres = set('|'.join(movies['genres']).split('|'))
+selected_genres = st.multiselect("Filter by Genre", sorted(list(all_genres)))
 
 if st.button("Recommend"):
     try:
@@ -73,27 +82,43 @@ if st.button("Recommend"):
         else:
             encoded_user_id = u_enc.transform([raw_user_id])[0]
             
-            # Prepare all valid movies
+            # Prepare valid movies
             encoded_movie_ids = m_enc.transform(movies['movieId'].unique())
             
             # Prepare Tensors
             user_tensor = torch.LongTensor([encoded_user_id] * len(encoded_movie_ids))
             movie_tensor = torch.LongTensor(encoded_movie_ids)
             
-            # Inference 
+            # Inference
             model.eval()
             with torch.no_grad():
                 preds = model(user_tensor, movie_tensor)
             
-            # Display results
+            # Create results
             results = pd.DataFrame({
                 'title': movies['title'].values,
+                'genres': movies['genres'].values,
                 'predicted_rating': preds.numpy()
             })
             
-            top_recs = results.sort_values('predicted_rating', ascending=False).head(5)
-            st.write(f"### Top 5 Recommendations for User {raw_user_id}")
-            st.table(top_recs)
+            # Apply Genre Filter
+            if selected_genres:
+                results = results[results['genres'].apply(lambda x: any(g in x for g in selected_genres))]
+            
+            # Sort results
+            top_recs = results.sort_values('predicted_rating', ascending=False).head(num_recs)
+            
+            st.write(f"### Top {num_recs} Recommendations")
+            
+            # Display as interactive table
+            display_df = top_recs[['title', 'predicted_rating']].copy()
+            display_df.columns = ['Movie Title', 'Predicted Rating']
+            
+            st.dataframe(
+                display_df, 
+                use_container_width=True, 
+                hide_index=True
+            )
             
     except Exception as e:
         st.error(f"An error occurred: {e}")
