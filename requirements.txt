@@ -1,0 +1,4 @@
+pandas
+scikit-surprise
+streamlit
+joblib
